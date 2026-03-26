@@ -1,0 +1,36 @@
+{
+  "deployed_at": "2026-03-26T23:35:58.528764",
+  "strategy": "V5 Sector Rotation",
+  "top_etfs": [
+    "XLE",
+    "XLU"
+  ],
+  "config": {
+    "lookback": 30,
+    "top_n": 2,
+    "rebalance_days": 15,
+    "trailing_stop_pct": 0.1
+  },
+  "sold": [
+    {
+      "symbol": "CVX",
+      "qty": 73,
+      "status": "pending_new"
+    },
+    {
+      "symbol": "JNJ",
+      "qty": 62,
+      "status": "pending_new"
+    },
+    {
+      "symbol": "SH",
+      "qty": 532,
+      "status": "pending_new"
+    },
+    {
+      "symbol": "XOM",
+      "qty": 61,
+      "status": "pending_new"
+    }
+  ]
+}
