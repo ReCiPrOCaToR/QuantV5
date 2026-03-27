@@ -116,7 +116,7 @@ tr:hover{background:#1e1e3a}
       <h2>Strategy Info</h2>
       <div id="strategyInfo">Loading...</div>
     </div>
-    <div id="liveScanOutput" class="hidden panel"><h2>Scan Output</h2><pre id="liveScanLog" style="font-size:12px;color:#aaa;white-space:pre-wrap"></pre></div>
+    <div id="liveScanOutput" class="hidden panel"><h2>Scan Results</h2><div id="liveScanLog" style="font-size:14px"></div></div>
   </div>
 </div>
 <script>
@@ -148,11 +148,32 @@ function pollTask(type) {
       if(d.status==='running'){document.getElementById('liveProgressFill').style.width='60%';document.getElementById('liveStatusText').textContent=d.progress||'Scanning...'}
       else if(d.status==='done'){clearInterval(pollTimer);document.getElementById('liveProgressFill').style.width='100%';
         if(d.result&&d.result.output){document.getElementById('liveStatusText').textContent='Execute done!';
-          document.getElementById('liveScanLog').textContent=d.result.output;document.getElementById('liveScanOutput').classList.remove('hidden')}
-        else if(d.result&&d.result.scan){const s=d.result.scan;let txt='Regime: '+(s.regime||'?')+' | SPY: $'+(s.spy_price||'?')+' vs SMA200 $'+(s.spy_sma200||'?')+'\n\n';
-          txt+='Rankings:\n';(s.rankings||[]).forEach((r,i)=>{txt+=(i+1)+'. '+r.symbol+' RS='+r.rs.toFixed(4)+' Price=$'+r.price+' Mom60='+r.momentum+'%\n'});
-          txt+='\nTop picks: '+(s.top||[]).join(', ');document.getElementById('liveScanLog').textContent=txt;
-          document.getElementById('liveScanOutput').classList.remove('hidden');document.getElementById('liveStatusText').textContent='Scan done!'}
+          document.getElementById('liveScanLog').innerHTML='<pre style="font-size:13px;color:#aaa;white-space:pre-wrap">'+d.result.output+'</pre>';document.getElementById('liveScanOutput').classList.remove('hidden')}
+        else if(d.result&&d.result.analysis){
+          const a=d.result.analysis, s=a.scan;
+          let html='<div style="background:#1a2332;border-radius:10px;padding:16px;margin-top:10px">';
+          html+='<div style="font-size:18px;font-weight:bold;margin-bottom:12px">Scan Results</div>';
+          // Regime
+          const isBull = s.regime==='BULL';
+          html+='<div style="margin-bottom:12px;font-size:15px">Market: <span style="color:'+(isBull?'#00ff88':'#ff4444')+';font-weight:bold">'+s.regime+'</span> | SPY $'+s.spy_price+' vs SMA200 $'+s.spy_sma200+'</div>';
+          // Rankings table
+          html+='<table style="width:100%;border-collapse:collapse;margin-bottom:12px"><tr style="color:#888;font-size:13px"><th style="text-align:left;padding:4px">ETF</th><th>RS</th><th>Price</th><th>60d Momentum</th><th>Action</th></tr>';
+          (s.rankings||[]).forEach((r,i)=>{
+            const isTop = a.to_buy.includes(r.symbol)||a.to_hold.includes(r.symbol);
+            const isSell = a.to_sell.includes(r.symbol);
+            html+='<tr style="border-top:1px solid #333;color:'+(isTop?'#00ff88':isSell?'#ff4444':'#aaa')+'"><td style="padding:6px;font-weight:bold">'+r.symbol+'</td><td style="text-align:center">'+r.rs.toFixed(4)+'</td><td style="text-align:center">$'+r.price+'</td><td style="text-align:center">'+r.momentum+'%</td><td style="text-align:center;font-weight:bold">'+(isTop?'HOLD':isSell?'SELL':'')+'</td></tr>';
+          });
+          html+='</table>';
+          // Recommendation
+          const shouldExec = a.should_execute;
+          html+='<div style="background:'+(shouldExec?'#332200':'#002200')+';border:1px solid '+(shouldExec?'#ffaa00':'#00ff88')+';border-radius:8px;padding:12px;font-size:15px">';
+          html+='<div style="font-weight:bold;margin-bottom:6px;color:'+(shouldExec?'#ffaa00':'#00ff88')+'">'+(shouldExec?'Action Needed':'No Action')+'</div>';
+          html+='<div>'+a.recommendation+'</div>';
+          if(shouldExec) html+='<div style="margin-top:8px;color:#ffaa00;font-size:13px">Click "Execute Trades" to proceed</div>';
+          html+='</div></div>';
+          document.getElementById('liveScanLog').innerHTML=html;
+          document.getElementById('liveScanOutput').classList.remove('hidden');
+          document.getElementById('liveStatusText').textContent='Scan done!'}
         else{document.getElementById('liveStatusText').textContent='Done!'}
         refreshLive()}
       else if(d.status==='error'){clearInterval(pollTimer);document.getElementById('liveStatusText').textContent='Error: '+d.progress}

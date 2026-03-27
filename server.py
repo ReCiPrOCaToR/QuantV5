@@ -279,7 +279,7 @@ def run_live_async():
 
 
 def run_scan_only_async():
-    """Scan only - no trades, just rankings"""
+    """Scan only - no trades, just show rankings with analysis"""
     global _task_state
     try:
         _task_state = {"status": "running", "progress": "Scanning...", "result": None}
@@ -289,7 +289,47 @@ def run_scan_only_async():
         trader = LiveTraderV5()
         scan = trader.scan()
 
-        _task_state = {"status": "done", "progress": "Scan complete", "result": {"scan": scan}}
+        # Get current positions
+        positions = trader.get_positions()
+        account = trader.get_account()
+
+        # Compare positions vs recommendations
+        current_etfs = {sym for sym in positions if sym in trader.SECTOR_ETFS}
+        target_etfs = set(scan.get('top', []))
+
+        to_buy = target_etfs - current_etfs
+        to_sell = current_etfs - target_etfs
+        to_hold = current_etfs & target_etfs
+
+        # Build recommendation
+        has_changes = bool(to_buy or to_sell)
+        recommendation = ""
+        if not has_changes and current_etfs:
+            recommendation = "当前持仓已是最优，无需调整"
+        elif not current_etfs and target_etfs:
+            recommendation = "当前无持仓，建议执行交易买入: " + ", ".join(target_etfs)
+        elif has_changes:
+            parts = []
+            if to_buy:
+                parts.append("买入: " + ", ".join(sorted(to_buy)))
+            if to_sell:
+                parts.append("卖出: " + ", ".join(sorted(to_sell)))
+            if to_hold:
+                parts.append("持有: " + ", ".join(sorted(to_hold)))
+            recommendation = "持仓需要调整: " + " | ".join(parts)
+
+        analysis = {
+            "scan": scan,
+            "positions": {k: v for k, v in positions.items() if k in trader.SECTOR_ETFS},
+            "account": account,
+            "recommendation": recommendation,
+            "should_execute": has_changes,
+            "to_buy": sorted(list(to_buy)),
+            "to_sell": sorted(list(to_sell)),
+            "to_hold": sorted(list(to_hold)),
+        }
+
+        _task_state = {"status": "done", "progress": "Scan complete", "result": {"scan": scan, "analysis": analysis}}
 
     except Exception as e:
         _task_state = {"status": "error", "progress": str(e), "result": None}
