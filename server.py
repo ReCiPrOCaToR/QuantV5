@@ -32,19 +32,19 @@ def run_backtest_async(days, mode):
     try:
         _task_state = {"status": "running", "progress": "Loading data...", "result": None}
 
-        from backtest_v2 import BacktestV2
-        from config import Config, StrategyParams
-
         if mode == "v5":
-            # V5 Sector ETF Rotation
-            import pickle
-            from pathlib import Path
-            _task_state["progress"] = "Running V5 Sector Rotation..."
-            batch_path = Path(__file__).parent / "data" / "cache" / "batch_etf.pkl"
-            with open(batch_path, "rb") as f:
-                etf_data = pickle.load(f)
-            spy_data = etf_data.pop("SPY")
+            import data_cache
             from strategy_sector import SectorRotation
+            _task_state["progress"] = "Running V5 Sector Rotation..."
+            etfs = ['XLK','XLE','XLF','XLV','XLU','XLP','XLI','XLRE','XBI']
+            etf_data = {}
+            for sym in etfs:
+                df = data_cache.get(sym, 730)
+                if df is not None: etf_data[sym] = df
+            spy_data = data_cache.get('SPY', 730)
+            if not etf_data or spy_data is None:
+                _task_state = {"status": "error", "progress": "Missing ETF or SPY data. Run download_missing.py first.", "result": None}
+                return
             engine = SectorRotation(initial_capital=100000, top_n=2, lookback=30, rebalance_days=15)
             results = engine.run(etf_data, spy_data)
             import pandas as _pd
@@ -284,7 +284,7 @@ def run_scan_only_async():
     try:
         _task_state = {"status": "running", "progress": "Scanning...", "result": None}
 
-        from live_trader_v5 import LiveTraderV5
+        from live_trader_v5 import LiveTraderV5, SECTOR_ETFS
 
         trader = LiveTraderV5()
         scan = trader.scan()
@@ -294,7 +294,7 @@ def run_scan_only_async():
         account = trader.get_account()
 
         # Compare positions vs recommendations
-        current_etfs = {sym for sym in positions if sym in trader.SECTOR_ETFS}
+        current_etfs = {sym for sym in positions if sym in SECTOR_ETFS}
         target_etfs = set(scan.get('top', []))
 
         to_buy = target_etfs - current_etfs
@@ -320,7 +320,7 @@ def run_scan_only_async():
 
         analysis = {
             "scan": scan,
-            "positions": {k: v for k, v in positions.items() if k in trader.SECTOR_ETFS},
+            "positions": {k: v for k, v in positions.items() if k in SECTOR_ETFS},
             "account": account,
             "recommendation": recommendation,
             "should_execute": has_changes,
