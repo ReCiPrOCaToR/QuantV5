@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>V4 Quant Dashboard</title>
+<title>V5 Sector Rotation Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -116,237 +116,346 @@ tr:hover{background:#1e1e3a}
       <h2>Strategy Info</h2>
       <div id="strategyInfo">Loading...</div>
     </div>
-    <div id="liveScanOutput" class="hidden panel"><h2>Scan Results</h2><div id="liveScanLog" style="font-size:14px"></div></div>
+    <div id="liveScanOutput" class="hidden panel">
+      <h2>Scan Results</h2>
+      <div id="liveScanLog" style="font-size:14px"></div>
+    </div>
   </div>
 </div>
+
 <script>
 let charts = {};
 let pollTimer = null;
+
+const STRATEGY_CONFIGS = {
+  v5: {name:'V5 Sector Rotation', color:'#00d4ff', params:[['Universe','9 Sector ETFs'],['Signal','30d Relative Strength'],['Positions','Top 2'],['Rebalance','15 days'],['Stop','10% trailing']]},
+  v4: {name:'V4 Pure Momentum', color:'#00ff88', params:[['Factor','60d Momentum (100%)'],['Positions','Top 4'],['Rebalance','5 days'],['Stop','10% trailing']]},
+  v2fast: {name:'V2 Fast', color:'#ff9800', params:[['Rebalance','3 days'],['Stop','1.8xATR']]},
+  v2slow: {name:'V2 Original', color:'#00d4ff', params:[['Rebalance','10 days'],['Stop','2.5xATR']]}
+};
+
+// === Mode Switching ===
 function switchMode(m) {
-  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
-  if(m==='backtest'){document.querySelectorAll('.mode-btn')[0].classList.add('active');document.getElementById('backtestPanel').classList.remove('hidden');document.getElementById('livePanel').classList.add('hidden')}
-  else{document.querySelectorAll('.mode-btn')[1].classList.add('active');document.getElementById('backtestPanel').classList.add('hidden');document.getElementById('livePanel').classList.remove('hidden');refreshLive()}
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  if (m === 'backtest') {
+    document.querySelectorAll('.mode-btn')[0].classList.add('active');
+    document.getElementById('backtestPanel').classList.remove('hidden');
+    document.getElementById('livePanel').classList.add('hidden');
+  } else {
+    document.querySelectorAll('.mode-btn')[1].classList.add('active');
+    document.getElementById('backtestPanel').classList.add('hidden');
+    document.getElementById('livePanel').classList.remove('hidden');
+    refreshLive();
+  }
 }
+
+// === Backtest ===
 function runBacktest() {
   const btn = document.getElementById('runBtn');
-  btn.disabled = true; btn.textContent = 'Running...';
+  btn.disabled = true;
+  btn.textContent = 'Running...';
   document.getElementById('progressArea').classList.remove('hidden');
   document.getElementById('progressFill').style.width = '30%';
   document.getElementById('statusText').textContent = 'Starting...';
-  fetch('/api/backtest', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({days:+document.getElementById('daysSelect').value,mode:document.getElementById('strategySelect').value})})
-  .then(r=>r.json()).then(()=>{pollTask('backtest')})
-}
-function pollTask(type) {
-  if(pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(async()=>{
-    const d = await(await fetch('/api/task/status')).json();
-    if(type==='backtest'){
-      if(d.status==='running'){document.getElementById('progressFill').style.width='60%';document.getElementById('statusText').textContent=d.progress||'Running...'}
-      else if(d.status==='done'){clearInterval(pollTimer);document.getElementById('progressFill').style.width='100%';document.getElementById('statusText').textContent='Done!';document.getElementById('runBtn').disabled=false;document.getElementById('runBtn').textContent='Run Backtest';renderResults(d.result);setTimeout(()=>document.getElementById('progressArea').classList.add('hidden'),1000)}
-      else if(d.status==='error'){clearInterval(pollTimer);document.getElementById('statusText').textContent='Error: '+d.progress;document.getElementById('runBtn').disabled=false;document.getElementById('runBtn').textContent='Run Backtest'}
-    } else if(type==='live'){
-      if(d.status==='running'){document.getElementById('liveProgressFill').style.width='60%';document.getElementById('liveStatusText').textContent=d.progress||'Scanning...'}
-      else if(d.status==='done'){clearInterval(pollTimer);document.getElementById('liveProgressFill').style.width='100%';
-        if(d.result&&d.result.output){document.getElementById('liveStatusText').textContent='Execute done!';
-          document.getElementById('liveScanLog').innerHTML='<pre style="font-size:13px;color:#aaa;white-space:pre-wrap">'+d.result.output+'</pre>';document.getElementById('liveScanOutput').classList.remove('hidden')}
-        else if(d.result&&d.result.analysis){
-          const a=d.result.analysis, s=a.scan;
-          let html='<div style="background:#1a2332;border-radius:10px;padding:16px;margin-top:10px">';
-          html+='<div style="font-size:18px;font-weight:bold;margin-bottom:12px">Scan Results</div>';
-          // Regime
-          const isBull = s.regime==='BULL';
-          html+='<div style="margin-bottom:12px;font-size:15px">Market: <span style="color:'+(isBull?'#00ff88':'#ff4444')+';font-weight:bold">'+s.regime+'</span> | SPY $'+s.spy_price+' vs SMA200 $'+s.spy_sma200+'</div>';
-          // Rankings table
-          html+='<table style="width:100%;border-collapse:collapse;margin-bottom:12px"><tr style="color:#888;font-size:13px"><th style="text-align:left;padding:4px">ETF</th><th>RS</th><th>Price</th><th>60d Momentum</th><th>Action</th></tr>';
-          (s.rankings||[]).forEach((r,i)=>{
-            const isTop = a.to_buy.includes(r.symbol)||a.to_hold.includes(r.symbol);
-            const isSell = a.to_sell.includes(r.symbol);
-            html+='<tr style="border-top:1px solid #333;color:'+(isTop?'#00ff88':isSell?'#ff4444':'#aaa')+'"><td style="padding:6px;font-weight:bold">'+r.symbol+'</td><td style="text-align:center">'+r.rs.toFixed(4)+'</td><td style="text-align:center">$'+r.price+'</td><td style="text-align:center">'+r.momentum+'%</td><td style="text-align:center;font-weight:bold">'+(isTop?'HOLD':isSell?'SELL':'')+'</td></tr>';
-          });
-          html+='</table>';
-          // Recommendation
-          const shouldExec = a.should_execute;
-          html+='<div style="background:'+(shouldExec?'#332200':'#002200')+';border:1px solid '+(shouldExec?'#ffaa00':'#00ff88')+';border-radius:8px;padding:12px;font-size:15px">';
-          html+='<div style="font-weight:bold;margin-bottom:6px;color:'+(shouldExec?'#ffaa00':'#00ff88')+'">'+(shouldExec?'Action Needed':'No Action')+'</div>';
-          html+='<div>'+a.recommendation+'</div>';
-          if(shouldExec) html+='<div style="margin-top:8px;color:#ffaa00;font-size:13px">Click "Execute Trades" to proceed</div>';
-          html+='</div></div>';
-          document.getElementById('liveScanLog').innerHTML=html;
-          document.getElementById('liveScanOutput').classList.remove('hidden');
-          document.getElementById('liveStatusText').textContent='Scan done!'}
-        else{document.getElementById('liveStatusText').textContent='Done!'}
-        refreshLive()}
-      else if(d.status==='error'){clearInterval(pollTimer);document.getElementById('liveStatusText').textContent='Error: '+d.progress}
-    }
-function runWalkForward() {
-  const btn = document.getElementById("wfBtn");
-  btn.disabled = true; btn.textContent = "Running...";
-  document.getElementById("wfProgressArea").style.display = "block";
-  document.getElementById("wfStatusText").textContent = "Starting walk-forward...";
-  document.getElementById("wfArea").classList.remove("hidden");
-  fetch("/api/walkforward/start", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({train_days:120, test_days:60})})
-    .then(r=>r.json()).then(()=>{pollWF()})
-}
-function pollWF() {
-  const timer = setInterval(async()=>{
-    const d = await(await fetch("/api/walkforward/status")).json();
-    if(d.status==="running") {
-      document.getElementById("wfProgressFill").style.width = "60%";
-      document.getElementById("wfStatusText").textContent = d.progress || "Running grid search...";
-    } else if(d.status==="done") {
-      clearInterval(timer);
-      document.getElementById("wfProgressFill").style.width = "100%";
-      document.getElementById("wfStatusText").textContent = "Complete!";
-      document.getElementById("wfBtn").disabled = false;
-      document.getElementById("wfBtn").textContent = "Walk-Forward";
-      renderWF(d.result);
-      setTimeout(()=>{document.getElementById("wfProgressArea").style.display="none"}, 2000);
-    } else if(d.status==="error") {
-      clearInterval(timer);
-      document.getElementById("wfStatusText").textContent = "Error: " + d.progress;
-      document.getElementById("wfBtn").disabled = false;
-      document.getElementById("wfBtn").textContent = "Walk-Forward";
-    }
-  }, 2000);
-}
-function renderWF(r) {
-  if(!r) return;
-  const windows = r.windows || [];
-  const train_avg = windows.reduce((s,w)=>s+w.train_return,0)/windows.length;
-  const test_avg = windows.reduce((s,w)=>s+w.test_return,0)/windows.length;
-  const pos = windows.filter(w=>w.test_return>0).length;
-  const deg = (train_avg - test_avg).toFixed(2);
-  let html = '<div class="kpi-grid">';
-  html += '<div class="kpi-card"><div class="kpi-label">Windows</div><div class="kpi-value">'+windows.length+'</div></div>';
-  html += '<div class="kpi-card"><div class="kpi-label">Train Avg</div><div class="kpi-value '+(train_avg>=0?'pos':'neg')+'">'+train_avg.toFixed(2)+'%</div></div>';
-  html += '<div class="kpi-card"><div class="kpi-label">Test Avg</div><div class="kpi-value '+(test_avg>=0?'pos':'neg')+'">'+test_avg.toFixed(2)+'%</div></div>';
-  html += '<div class="kpi-card"><div class="kpi-label">Positive</div><div class="kpi-value '+(pos>=windows.length*0.6?'pos':'neu')+'">'+pos+'/'+windows.length+'</div></div>';
-  html += '<div class="kpi-card"><div class="kpi-label">Degradation</div><div class="kpi-value '+(deg<3?'pos':deg<6?'neu':'neg')+'">'+deg+'%</div></div>';
-  html += '</div>';
-  html += '<div class="trade-scroll" style="margin-top:15px"><table><thead><tr><th>#</th><th>Train Period</th><th>Test Period</th><th>Train %</th><th>Test %</th><th>Params</th></tr></thead><tbody>';
-  windows.forEach((w,i)=>{
-    html += '<tr><td>'+(i+1)+'</td><td>'+w.train_start+' to '+w.train_end+'</td><td>'+w.test_start+' to '+w.test_end+'</td>';
-    html += '<td class="'+(w.train_return>=0?'pos':'neg')+'">'+w.train_return.toFixed(2)+'%</td>';
-    html += '<td class="'+(w.test_return>=0?'pos':'neg')+'">'+w.test_return.toFixed(2)+'%</td>';
-    html += '<td>R'+(w.params?.rebalance_interval||'?')+'/S'+(w.params?.stop_loss||'?')+'/P'+(w.params?.max_positions||'?')+'</td></tr>';
-  });
-  html += '</tbody></table></div>';
-  document.getElementById("wfResults").innerHTML = html;
+  fetch('/api/backtest', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      days: +document.getElementById('daysSelect').value,
+      mode: document.getElementById('strategySelect').value
+    })
+  }).then(r => r.json()).then(() => pollTask('backtest'));
 }
 
-refreshLive();setTimeout(()=>document.getElementById('liveProgressArea').classList.add('hidden'),2000)}
-      else if(d.status==='error'){clearInterval(pollTimer);document.getElementById('liveStatusText').textContent='Error: '+d.progress}
+// === Poll Task Status ===
+function pollTask(type) {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    const d = await (await fetch('/api/task/status')).json();
+
+    if (type === 'backtest') {
+      if (d.status === 'running') {
+        document.getElementById('progressFill').style.width = '60%';
+        document.getElementById('statusText').textContent = d.progress || 'Running...';
+      } else if (d.status === 'done') {
+        clearInterval(pollTimer);
+        document.getElementById('progressFill').style.width = '100%';
+        document.getElementById('statusText').textContent = 'Done!';
+        document.getElementById('runBtn').disabled = false;
+        document.getElementById('runBtn').textContent = 'Run Backtest';
+        renderResults(d.result);
+        setTimeout(() => document.getElementById('progressArea').classList.add('hidden'), 1000);
+      } else if (d.status === 'error') {
+        clearInterval(pollTimer);
+        document.getElementById('statusText').textContent = 'Error: ' + d.progress;
+        document.getElementById('runBtn').disabled = false;
+        document.getElementById('runBtn').textContent = 'Run Backtest';
+      }
+
+    } else if (type === 'live') {
+      if (d.status === 'running') {
+        document.getElementById('liveProgressFill').style.width = '60%';
+        document.getElementById('liveStatusText').textContent = d.progress || 'Processing...';
+      } else if (d.status === 'done') {
+        clearInterval(pollTimer);
+        document.getElementById('liveProgressFill').style.width = '100%';
+
+        // Execute result (has output text)
+        if (d.result && d.result.output) {
+          document.getElementById('liveStatusText').textContent = 'Execute done!';
+          document.getElementById('liveScanLog').innerHTML =
+            '<pre style="font-size:13px;color:#aaa;white-space:pre-wrap">' + d.result.output + '</pre>';
+          document.getElementById('liveScanOutput').classList.remove('hidden');
+          refreshLive();
+
+        // Scan result (has analysis)
+        } else if (d.result && d.result.analysis) {
+          renderScanAnalysis(d.result.analysis);
+          document.getElementById('liveStatusText').textContent = 'Scan done!';
+
+        } else {
+          document.getElementById('liveStatusText').textContent = 'Done!';
+        }
+      } else if (d.status === 'error') {
+        clearInterval(pollTimer);
+        document.getElementById('liveStatusText').textContent = 'Error: ' + d.progress;
+      }
     }
-  },1500);
+  }, 1500);
 }
+
+// === Render Scan Analysis ===
+function renderScanAnalysis(a) {
+  const s = a.scan;
+  const isBull = s.regime === 'BULL';
+  let html = '<div style="background:#1a2332;border-radius:10px;padding:16px;margin-top:10px">';
+
+  // Header
+  html += '<div style="font-size:18px;font-weight:bold;margin-bottom:12px">Market Overview</div>';
+  html += '<div style="margin-bottom:12px;font-size:15px">Regime: <span style="color:' +
+    (isBull ? '#00ff88' : '#ff4444') + ';font-weight:bold">' + s.regime +
+    '</span> | SPY $' + s.spy_price + ' vs SMA200 $' + s.spy_sma200 + '</div>';
+
+  // Rankings table
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px">';
+  html += '<tr style="color:#888;font-size:13px"><th style="text-align:left;padding:6px">ETF</th><th>RS</th><th>Price</th><th>60d Momentum</th><th>Action</th></tr>';
+  (s.rankings || []).forEach(r => {
+    const isHold = a.to_hold.includes(r.symbol);
+    const isBuy = a.to_buy.includes(r.symbol);
+    const isSell = a.to_sell.includes(r.symbol);
+    const action = isBuy ? 'BUY' : isHold ? 'HOLD' : isSell ? 'SELL' : '';
+    const color = isBuy ? '#00ff88' : isHold ? '#00d4ff' : isSell ? '#ff4444' : '#666';
+    html += '<tr style="border-top:1px solid #333;color:' + color + '">' +
+      '<td style="padding:6px;font-weight:bold">' + r.symbol + '</td>' +
+      '<td style="text-align:center">' + r.rs.toFixed(4) + '</td>' +
+      '<td style="text-align:center">$' + r.price + '</td>' +
+      '<td style="text-align:center">' + r.momentum + '%</td>' +
+      '<td style="text-align:center;font-weight:bold">' + action + '</td></tr>';
+  });
+  html += '</table>';
+
+  // Recommendation box
+  const shouldExec = a.should_execute;
+  const bgColor = shouldExec ? '#332200' : '#002200';
+  const borderColor = shouldExec ? '#ffaa00' : '#00ff88';
+  const title = shouldExec ? 'Action Needed' : 'No Action';
+  const titleColor = shouldExec ? '#ffaa00' : '#00ff88';
+
+  html += '<div style="background:' + bgColor + ';border:1px solid ' + borderColor +
+    ';border-radius:8px;padding:14px;font-size:15px">';
+  html += '<div style="font-weight:bold;margin-bottom:8px;color:' + titleColor + '">' + title + '</div>';
+  html += '<div>' + a.recommendation + '</div>';
+  if (shouldExec) {
+    html += '<div style="margin-top:10px;color:#ffaa00;font-size:13px">Click "Execute Trades" to proceed</div>';
+  }
+  html += '</div></div>';
+
+  document.getElementById('liveScanLog').innerHTML = html;
+  document.getElementById('liveScanOutput').classList.remove('hidden');
+}
+
+// === Scan Only (no trades) ===
 function runScanOnly() {
   const btn = document.getElementById('liveScanBtn');
-  btn.disabled = true; btn.textContent = 'Scanning...';
-  fetch('/api/live/scan-only',{method:'POST'}).then(r=>r.json()).then(()=>{document.getElementById('liveProgressArea').classList.remove('hidden');pollTask('live')})
-  setTimeout(()=>{btn.disabled=false;btn.textContent='Scan'},5000)
-}
-function runExecuteTrades() {
-  if(!confirm('Execute trades? This will place real orders (paper).')) return;
-  const btn = document.getElementById('liveExecuteBtn');
-  btn.disabled = true; btn.textContent = 'Executing...';
-  fetch('/api/live/execute',{method:'POST'}).then(r=>r.json()).then(()=>{document.getElementById('liveProgressArea').classList.remove('hidden');pollTask('live')})
-  setTimeout(()=>{btn.disabled=false;btn.textContent='Execute Trades'},5000)
-}
-function renderResults(r) {
-  document.getElementById('resultsArea').classList.remove('hidden');
-  const cfg = STRATEGY_CONFIGS[r.strategy_version]||{};
-  const badgeName = cfg.name||r.strategy_version;
-  const badgeColor = cfg.color||'#00d4ff';
-  const ret=r.returns,risk=r.risk,bench=r.benchmark,tr=r.trades;
-  const kpis=[
-    {label:'Strategy',value:badgeName,sub:r.period.start+' to '+r.period.end,badgeColor:badgeColor},
-    {label:'Alpha',value:bench.alpha_pct.toFixed(2)+'%',sub:'SPY '+bench.spy_return_pct.toFixed(2)+'%',cls:bench.alpha_pct>=0?'pos':'neg'},
-    {label:'Sharpe',value:risk.sharpe.toFixed(3),sub:'Sortino '+risk.sortino.toFixed(3),cls:risk.sharpe>0.5?'pos':'neu'},
-    {label:'Max Drawdown',value:risk.max_dd_pct.toFixed(2)+'%',sub:risk.max_dd_date,cls:'neg'},
-    {label:'Win Rate',value:tr.win_rate_pct.toFixed(1)+'%',sub:tr.wins+'W/'+tr.losses+'L',cls:tr.win_rate_pct>=55?'pos':'neu'},
-    {label:'Profit Factor',value:tr.pf.toFixed(2),sub:'Exp $'+Math.round(tr.expectancy)+'/trade',cls:tr.pf>=2?'pos':tr.pf>=1?'neu':'neg'},
-    {label:'Final Equity',value:'$'+ret.final.toLocaleString(),sub:'Start $'+ret.initial.toLocaleString()},
-    {label:'Trades',value:tr.total,sub:'Avg hold '+tr.avg_hold.toFixed(0)+'d'},
-  ];
-  document.getElementById('kpiGrid').innerHTML=kpis.map(k=>'<div class="kpi-card"'+(k.badgeColor?' style="border-left:3px solid '+k.badgeColor+'"':'')+'><div class="kpi-label">'+k.label+'</div><div class="kpi-value '+(k.cls||'')+'"'+(k.badgeColor?' style="color:'+k.badgeColor+'"':'')+'>'+k.value+'</div><div class="kpi-sub">'+k.sub+'</div></div>').join('');
-  Object.values(charts).forEach(c=>c.destroy());charts={};
-  const eq=r.equity_curve;
-  charts.eq=new Chart(document.getElementById('equityChart'),{type:'line',data:{labels:eq.labels,datasets:[{data:eq.values,borderColor:'#00d4ff',backgroundColor:'rgba(0,212,255,0.1)',fill:true,tension:0.3,pointRadius:0}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{display:false},y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',color:'#888'},grid:{color:'#2a2a4a'}}}}});
-  charts.dd=new Chart(document.getElementById('ddChart'),{type:'line',data:{labels:eq.labels,datasets:[{data:r.dd_series,borderColor:'#ff5252',backgroundColor:'rgba(255,82,82,0.15)',fill:true,tension:0.3,pointRadius:0}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{display:false},y:{ticks:{callback:v=>v.toFixed(1)+'%',color:'#888'},grid:{color:'#2a2a4a'}}}}});
-  const mColors=r.monthly.returns.map(v=>v>=0?'#00e676':'#ff5252');
-  charts.m=new Chart(document.getElementById('monthlyChart'),{type:'bar',data:{labels:r.monthly.labels,datasets:[{data:r.monthly.returns,backgroundColor:mColors}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#888'}},y:{ticks:{callback:v=>v+'%',color:'#888'},grid:{color:'#2a2a4a'}}}}});
-  if(r.cum_pnl&&r.cum_pnl.length){charts.cum=new Chart(document.getElementById('cumPnlChart'),{type:'line',data:{labels:r.cum_pnl.map((_,i)=>i+1),datasets:[{data:r.cum_pnl,borderColor:'#ffc107',backgroundColor:'rgba(255,193,7,0.1)',fill:true,tension:0.3,pointRadius:0}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{display:false},y:{ticks:{callback:v=>'$'+Math.round(v),color:'#888'},grid:{color:'#2a2a4a'}}}}})}
-  document.getElementById('tradeTable').innerHTML=(r.all_trades||[]).map((t,i)=>'<tr><td>'+(i+1)+'</td><td><b>'+t.symbol+'</b></td><td>'+t.entry_date+'</td><td>'+t.exit_date+'</td><td>$'+t.entry_price+'</td><td>$'+t.exit_price+'</td><td>'+t.qty+'</td><td class="'+(t.pnl>=0?'pos':'neg')+'">$'+t.pnl+'</td><td class="'+(t.pnl_pct>=0?'pos':'neg')+'">'+t.pnl_pct.toFixed(2)+'%</td><td>'+t.holding_days+'d</td><td><span class="badge '+(t.pnl>=0?'badge-win':'badge-loss')+'">'+t.exit_reason+'</span></td></tr>').join('');
-}
-const STRATEGY_CONFIGS={v4:{name:'V4 Pure Momentum',color:'#00ff88',params:[['Factor','60d Momentum (100%)'],['Positions','Top 4'],['Rebalance','5 days'],['Stop','10% trailing']]},v2fast:{name:'V2 Fast',color:'#ff9800',params:[['Rebalance','3 days'],['Stop','1.8xATR']]},v2slow:{name:'V2 Original',color:'#00d4ff',params:[['Rebalance','10 days'],['Stop','2.5xATR']]}};
-async function refreshLive(){
-  try{
-    const s=await(await fetch('/api/live/status')).json();
-    const i=await(await fetch('/api/strategy/info')).json();
-    document.getElementById('liveInfo').innerHTML='<div class="live-card"><span>Equity</span><span>$'+(s.equity||0).toLocaleString()+'</span></div><div class="live-card"><span>Cash</span><span>$'+(s.cash||0).toLocaleString()+'</span></div>';
-    const regime=i.regime||{};
-    document.getElementById('strategyInfo').innerHTML='<div class="live-card"><span>Version</span><span style="color:#00ff88;font-weight:bold">'+(i.version||'?')+'</span></div><div class="live-card"><span>Regime</span><span style="color:#ff9800;font-weight:bold">'+(regime.regime||'?')+'</span></div><div class="live-card"><span>Risk Mult</span><span>'+(regime.risk_multiplier||0)+'</span></div><h3 style="margin-top:15px;color:#888">Top Rankings</h3>'+(i.rankings||[]).map(r=>'<div class="live-card"><span>'+r.symbol+' ($'+r.price+')</span><span class="pos">'+(r.momentum*100).toFixed(1)+'%</span></div>').join('');
-    const pos=s.positions||[];
-    if(pos.length){document.getElementById('livePositions').innerHTML='<h3 style="margin-top:15px;color:#888">Open Positions</h3>'+pos.map(p=>'<div class="live-card"><span>'+p.symbol+' x'+p.qty+'</span><span class="'+(p.unrealized_pl>=0?'pos':'neg')+'">'+p.unrealized_plpc.toFixed(2)+'%</span></div>').join('')}
-  }catch(e){document.getElementById('strategyInfo').textContent='Error: '+e.message}
+  btn.disabled = true;
+  btn.textContent = 'Scanning...';
+  document.getElementById('liveProgressArea').classList.remove('hidden');
+  fetch('/api/live/scan-only', {method: 'POST'})
+    .then(r => r.json())
+    .then(() => pollTask('live'));
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Scan'; }, 8000);
 }
 
-function runWalkForward() {
-  const btn = document.getElementById("wfBtn");
-  btn.disabled = true; btn.textContent = "Running...";
-  document.getElementById("wfProgressArea").style.display = "block";
-  document.getElementById("wfStatusText").textContent = "Starting walk-forward...";
-  document.getElementById("wfArea").classList.remove("hidden");
-  fetch("/api/walkforward/start", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({train_days:120, test_days:60})})
-    .then(r=>r.json()).then(()=>{pollWF()})
+// === Execute Trades ===
+function runExecuteTrades() {
+  if (!confirm('Execute trades? This will place real orders (paper account).')) return;
+  const btn = document.getElementById('liveExecuteBtn');
+  btn.disabled = true;
+  btn.textContent = 'Executing...';
+  document.getElementById('liveProgressArea').classList.remove('hidden');
+  fetch('/api/live/execute', {method: 'POST'})
+    .then(r => r.json())
+    .then(() => pollTask('live'));
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Execute Trades'; }, 8000);
 }
+
+// === Walk-Forward ===
+function runWalkForward() {
+  const btn = document.getElementById('wfBtn');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  document.getElementById('wfProgressArea').style.display = 'block';
+  document.getElementById('wfStatusText').textContent = 'Starting walk-forward...';
+  document.getElementById('wfArea').classList.remove('hidden');
+  fetch('/api/walkforward/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({train_days: 120, test_days: 60})
+  }).then(r => r.json()).then(() => pollWF());
+}
+
 function pollWF() {
-  const timer = setInterval(async()=>{
-    const d = await(await fetch("/api/walkforward/status")).json();
-    if(d.status==="running") {
-      document.getElementById("wfProgressFill").style.width = "60%";
-      document.getElementById("wfStatusText").textContent = d.progress || "Running grid search...";
-    } else if(d.status==="done") {
+  const timer = setInterval(async () => {
+    const d = await (await fetch('/api/walkforward/status')).json();
+    if (d.status === 'running') {
+      document.getElementById('wfProgressFill').style.width = '60%';
+      document.getElementById('wfStatusText').textContent = d.progress || 'Running...';
+    } else if (d.status === 'done') {
       clearInterval(timer);
-      document.getElementById("wfProgressFill").style.width = "100%";
-      document.getElementById("wfStatusText").textContent = "Complete!";
-      document.getElementById("wfBtn").disabled = false;
-      document.getElementById("wfBtn").textContent = "Walk-Forward";
+      document.getElementById('wfProgressFill').style.width = '100%';
+      document.getElementById('wfStatusText').textContent = 'Complete!';
+      document.getElementById('wfBtn').disabled = false;
+      document.getElementById('wfBtn').textContent = 'Walk-Forward';
       renderWF(d.result);
-      setTimeout(()=>{document.getElementById("wfProgressArea").style.display="none"}, 2000);
-    } else if(d.status==="error") {
+      setTimeout(() => { document.getElementById('wfProgressArea').style.display = 'none'; }, 2000);
+    } else if (d.status === 'error') {
       clearInterval(timer);
-      document.getElementById("wfStatusText").textContent = "Error: " + d.progress;
-      document.getElementById("wfBtn").disabled = false;
-      document.getElementById("wfBtn").textContent = "Walk-Forward";
+      document.getElementById('wfStatusText').textContent = 'Error: ' + d.progress;
+      document.getElementById('wfBtn').disabled = false;
+      document.getElementById('wfBtn').textContent = 'Walk-Forward';
     }
   }, 2000);
 }
+
 function renderWF(r) {
-  if(!r) return;
+  if (!r) return;
   const windows = r.windows || [];
-  const train_avg = windows.reduce((s,w)=>s+w.train_return,0)/windows.length;
-  const test_avg = windows.reduce((s,w)=>s+w.test_return,0)/windows.length;
-  const pos = windows.filter(w=>w.test_return>0).length;
+  const train_avg = windows.reduce((s, w) => s + w.train_return, 0) / windows.length;
+  const test_avg = windows.reduce((s, w) => s + w.test_return, 0) / windows.length;
+  const pos = windows.filter(w => w.test_return > 0).length;
   const deg = (train_avg - test_avg).toFixed(2);
   let html = '<div class="kpi-grid">';
-  html += '<div class="kpi-card"><div class="kpi-label">Windows</div><div class="kpi-value">'+windows.length+'</div></div>';
-  html += '<div class="kpi-card"><div class="kpi-label">Train Avg</div><div class="kpi-value '+(train_avg>=0?'pos':'neg')+'">'+train_avg.toFixed(2)+'%</div></div>';
-  html += '<div class="kpi-card"><div class="kpi-label">Test Avg</div><div class="kpi-value '+(test_avg>=0?'pos':'neg')+'">'+test_avg.toFixed(2)+'%</div></div>';
-  html += '<div class="kpi-card"><div class="kpi-label">Positive</div><div class="kpi-value '+(pos>=windows.length*0.6?'pos':'neu')+'">'+pos+'/'+windows.length+'</div></div>';
-  html += '<div class="kpi-card"><div class="kpi-label">Degradation</div><div class="kpi-value '+(deg<3?'pos':deg<6?'neu':'neg')+'">'+deg+'%</div></div>';
+  html += '<div class="kpi-card"><div class="kpi-label">Windows</div><div class="kpi-value">' + windows.length + '</div></div>';
+  html += '<div class="kpi-card"><div class="kpi-label">Train Avg</div><div class="kpi-value ' + (train_avg >= 0 ? 'pos' : 'neg') + '">' + train_avg.toFixed(2) + '%</div></div>';
+  html += '<div class="kpi-card"><div class="kpi-label">Test Avg</div><div class="kpi-value ' + (test_avg >= 0 ? 'pos' : 'neg') + '">' + test_avg.toFixed(2) + '%</div></div>';
+  html += '<div class="kpi-card"><div class="kpi-label">Positive</div><div class="kpi-value ' + (pos >= windows.length * 0.6 ? 'pos' : 'neu') + '">' + pos + '/' + windows.length + '</div></div>';
+  html += '<div class="kpi-card"><div class="kpi-label">Degradation</div><div class="kpi-value ' + (deg < 3 ? 'pos' : deg < 6 ? 'neu' : 'neg') + '">' + deg + '%</div></div>';
   html += '</div>';
   html += '<div class="trade-scroll" style="margin-top:15px"><table><thead><tr><th>#</th><th>Train Period</th><th>Test Period</th><th>Train %</th><th>Test %</th><th>Params</th></tr></thead><tbody>';
-  windows.forEach((w,i)=>{
-    html += '<tr><td>'+(i+1)+'</td><td>'+w.train_start+' to '+w.train_end+'</td><td>'+w.test_start+' to '+w.test_end+'</td>';
-    html += '<td class="'+(w.train_return>=0?'pos':'neg')+'">'+w.train_return.toFixed(2)+'%</td>';
-    html += '<td class="'+(w.test_return>=0?'pos':'neg')+'">'+w.test_return.toFixed(2)+'%</td>';
-    html += '<td>R'+(w.params?.rebalance_interval||'?')+'/S'+(w.params?.stop_loss||'?')+'/P'+(w.params?.max_positions||'?')+'</td></tr>';
+  windows.forEach((w, i) => {
+    html += '<tr><td>' + (i + 1) + '</td><td>' + w.train_start + ' to ' + w.train_end + '</td><td>' + w.test_start + ' to ' + w.test_end + '</td>';
+    html += '<td class="' + (w.train_return >= 0 ? 'pos' : 'neg') + '">' + w.train_return.toFixed(2) + '%</td>';
+    html += '<td class="' + (w.test_return >= 0 ? 'pos' : 'neg') + '">' + w.test_return.toFixed(2) + '%</td>';
+    html += '<td>R' + (w.params?.rebalance_interval || '?') + '/S' + (w.params?.stop_loss || '?') + '/P' + (w.params?.max_positions || '?') + '</td></tr>';
   });
   html += '</tbody></table></div>';
-  document.getElementById("wfResults").innerHTML = html;
+  document.getElementById('wfResults').innerHTML = html;
 }
 
+// === Render Backtest Results ===
+function renderResults(r) {
+  document.getElementById('resultsArea').classList.remove('hidden');
+  const cfg = STRATEGY_CONFIGS[r.strategy_version] || {};
+  const badgeName = cfg.name || r.strategy_version;
+  const badgeColor = cfg.color || '#00d4ff';
+  const ret = r.returns, risk = r.risk, bench = r.benchmark, tr = r.trades;
+
+  const kpis = [
+    {label: 'Strategy', value: badgeName, sub: r.period.start + ' to ' + r.period.end, badgeColor: badgeColor},
+    {label: 'Alpha', value: bench.alpha_pct.toFixed(2) + '%', sub: 'SPY ' + bench.spy_return_pct.toFixed(2) + '%', cls: bench.alpha_pct >= 0 ? 'pos' : 'neg'},
+    {label: 'Sharpe', value: risk.sharpe.toFixed(3), sub: 'Sortino ' + risk.sortino.toFixed(3), cls: risk.sharpe > 0.5 ? 'pos' : 'neu'},
+    {label: 'Max Drawdown', value: risk.max_dd_pct.toFixed(2) + '%', sub: risk.max_dd_date, cls: 'neg'},
+    {label: 'Win Rate', value: tr.win_rate_pct.toFixed(1) + '%', sub: tr.wins + 'W/' + tr.losses + 'L', cls: tr.win_rate_pct >= 55 ? 'pos' : 'neu'},
+    {label: 'Profit Factor', value: tr.pf.toFixed(2), sub: 'Exp $' + Math.round(tr.expectancy) + '/trade', cls: tr.pf >= 2 ? 'pos' : tr.pf >= 1 ? 'neu' : 'neg'},
+    {label: 'Final Equity', value: '$' + ret.final.toLocaleString(), sub: 'Start $' + ret.initial.toLocaleString()},
+    {label: 'Trades', value: tr.total, sub: 'Avg hold ' + tr.avg_hold.toFixed(0) + 'd'}
+  ];
+
+  document.getElementById('kpiGrid').innerHTML = kpis.map(k =>
+    '<div class="kpi-card"' + (k.badgeColor ? ' style="border-left:3px solid ' + k.badgeColor + '"' : '') +
+    '><div class="kpi-label">' + k.label + '</div><div class="kpi-value ' + (k.cls || '') + '"' +
+    (k.badgeColor ? ' style="color:' + k.badgeColor + '"' : '') + '>' + k.value +
+    '</div><div class="kpi-sub">' + k.sub + '</div></div>'
+  ).join('');
+
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+  const eq = r.equity_curve;
+
+  charts.eq = new Chart(document.getElementById('equityChart'), {
+    type: 'line',
+    data: {labels: eq.labels, datasets: [{data: eq.values, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.1)', fill: true, tension: 0.3, pointRadius: 0}]},
+    options: {responsive: true, plugins: {legend: {display: false}}, scales: {x: {display: false}, y: {ticks: {callback: v => '$' + (v / 1000).toFixed(0) + 'k', color: '#888'}, grid: {color: '#2a2a4a'}}}}
+  });
+
+  charts.dd = new Chart(document.getElementById('ddChart'), {
+    type: 'line',
+    data: {labels: eq.labels, datasets: [{data: r.dd_series, borderColor: '#ff5252', backgroundColor: 'rgba(255,82,82,0.15)', fill: true, tension: 0.3, pointRadius: 0}]},
+    options: {responsive: true, plugins: {legend: {display: false}}, scales: {x: {display: false}, y: {ticks: {callback: v => v.toFixed(1) + '%', color: '#888'}, grid: {color: '#2a2a4a'}}}}
+  });
+
+  const mColors = r.monthly.returns.map(v => v >= 0 ? '#00e676' : '#ff5252');
+  charts.m = new Chart(document.getElementById('monthlyChart'), {
+    type: 'bar',
+    data: {labels: r.monthly.labels, datasets: [{data: r.monthly.returns, backgroundColor: mColors}]},
+    options: {responsive: true, plugins: {legend: {display: false}}, scales: {x: {ticks: {color: '#888'}}, y: {ticks: {callback: v => v + '%', color: '#888'}, grid: {color: '#2a2a4a'}}}}
+  });
+
+  if (r.cum_pnl && r.cum_pnl.length) {
+    charts.cum = new Chart(document.getElementById('cumPnlChart'), {
+      type: 'line',
+      data: {labels: r.cum_pnl.map((_, i) => i + 1), datasets: [{data: r.cum_pnl, borderColor: '#ffc107', backgroundColor: 'rgba(255,193,7,0.1)', fill: true, tension: 0.3, pointRadius: 0}]},
+      options: {responsive: true, plugins: {legend: {display: false}}, scales: {x: {display: false}, y: {ticks: {callback: v => '$' + Math.round(v), color: '#888'}, grid: {color: '#2a2a4a'}}}}
+    });
+  }
+
+  document.getElementById('tradeTable').innerHTML = (r.all_trades || []).map((t, i) =>
+    '<tr><td>' + (i + 1) + '</td><td><b>' + t.symbol + '</b></td><td>' + t.entry_date + '</td><td>' + t.exit_date +
+    '</td><td>$' + t.entry_price + '</td><td>$' + t.exit_price + '</td><td>' + t.qty +
+    '</td><td class="' + (t.pnl >= 0 ? 'pos' : 'neg') + '">$' + t.pnl +
+    '</td><td class="' + (t.pnl_pct >= 0 ? 'pos' : 'neg') + '">' + t.pnl_pct.toFixed(2) + '%</td><td>' + t.holding_days +
+    'd</td><td><span class="badge ' + (t.pnl >= 0 ? 'badge-win' : 'badge-loss') + '">' + t.exit_reason + '</span></td></tr>'
+  ).join('');
+}
+
+// === Live Status Refresh ===
+async function refreshLive() {
+  try {
+    const s = await (await fetch('/api/live/status')).json();
+    const i = await (await fetch('/api/strategy/info')).json();
+    document.getElementById('liveInfo').innerHTML =
+      '<div class="live-card"><span>Equity</span><span>$' + (s.equity || 0).toLocaleString() + '</span></div>' +
+      '<div class="live-card"><span>Cash</span><span>$' + (s.cash || 0).toLocaleString() + '</span></div>';
+    const regime = i.regime || {};
+    document.getElementById('strategyInfo').innerHTML =
+      '<div class="live-card"><span>Version</span><span style="color:#00ff88;font-weight:bold">' + (i.version || '?') + '</span></div>' +
+      '<div class="live-card"><span>Regime</span><span style="color:#ff9800;font-weight:bold">' + (regime.regime || '?') + '</span></div>' +
+      '<div class="live-card"><span>Risk Mult</span><span>' + (regime.risk_multiplier || 0) + '</span></div>' +
+      '<h3 style="margin-top:15px;color:#888">Top Rankings</h3>' +
+      (i.rankings || []).map(r => '<div class="live-card"><span>' + r.symbol + ' ($' + r.price + ')</span><span class="pos">' + (r.momentum * 100).toFixed(1) + '%</span></div>').join('');
+    const pos = s.positions || [];
+    if (pos.length) {
+      document.getElementById('livePositions').innerHTML =
+        '<h3 style="margin-top:15px;color:#888">Open Positions</h3>' +
+        pos.map(p => '<div class="live-card"><span>' + p.symbol + ' x' + p.qty + '</span><span class="' + (p.unrealized_pl >= 0 ? 'pos' : 'neg') + '">' + p.unrealized_plpc.toFixed(2) + '%</span></div>').join('');
+    }
+  } catch (e) {
+    document.getElementById('strategyInfo').textContent = 'Error: ' + e.message;
+  }
+}
+
+// Init
 refreshLive();
 </script>
-</body></html>
+</body>
+</html>
