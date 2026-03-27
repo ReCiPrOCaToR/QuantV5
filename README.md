@@ -68,16 +68,6 @@ alpaca-trading-bot/
 └── requirements.txt    # Dependencies
 ```
 
-## Historical Versions
-
-| Version | Approach | Status |
-|---------|----------|--------|
-| v1 | 6-factor stock scoring | Deprecated |
-| v2 | Multi-factor momentum + quality | Deprecated |
-| v3 | Pure trend-following | Deprecated |
-| v4 | Single-factor momentum | Deprecated |
-| **v5** | **Sector ETF rotation** | **Production** |
-
 ## Risk Disclaimer
 
 1. **Paper Trading Only** — defaults to paper, change APCA_API_BASE_URL for live
