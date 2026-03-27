@@ -104,7 +104,8 @@ tr:hover{background:#1e1e3a}
     <div class="panel">
       <h2>Live Trading</h2>
       <div class="controls">
-        <button class="btn-run" id="liveScanBtn" onclick="runLiveScan()">Manual Scan</button>
+        <button class="btn-run" id="liveScanBtn" onclick="runScanOnly()" style="background:#00d4ff;color:#0f0f23">Scan</button>
+        <button class="btn-run" id="liveExecuteBtn" onclick="runExecuteTrades()" style="background:#ff4444;color:#fff">Execute Trades</button>
       </div>
       <div class="progress-bar hidden" id="liveProgressArea"><div class="progress-fill" id="liveProgressFill" style="width:60%"></div></div>
       <div id="liveStatusText" style="color:#888;font-size:13px;margin-top:5px"></div>
@@ -145,7 +146,17 @@ function pollTask(type) {
       else if(d.status==='error'){clearInterval(pollTimer);document.getElementById('statusText').textContent='Error: '+d.progress;document.getElementById('runBtn').disabled=false;document.getElementById('runBtn').textContent='Run Backtest'}
     } else if(type==='live'){
       if(d.status==='running'){document.getElementById('liveProgressFill').style.width='60%';document.getElementById('liveStatusText').textContent=d.progress||'Scanning...'}
-      else if(d.status==='done'){clearInterval(pollTimer);document.getElementById('liveProgressFill').style.width='100%';document.getElementById('liveStatusText').textContent='Scan done!';if(d.result&&d.result.output){document.getElementById('liveScanLog').textContent=d.result.output;document.getElementById('liveScanOutput').classList.remove('hidden')}
+      else if(d.status==='done'){clearInterval(pollTimer);document.getElementById('liveProgressFill').style.width='100%';
+        if(d.result&&d.result.output){document.getElementById('liveStatusText').textContent='Execute done!';
+          document.getElementById('liveScanLog').textContent=d.result.output;document.getElementById('liveScanOutput').classList.remove('hidden')}
+        else if(d.result&&d.result.scan){const s=d.result.scan;let txt='Regime: '+(s.regime||'?')+' | SPY: $'+(s.spy_price||'?')+' vs SMA200 $'+(s.spy_sma200||'?')+'\n\n';
+          txt+='Rankings:\n';(s.rankings||[]).forEach((r,i)=>{txt+=(i+1)+'. '+r.symbol+' RS='+r.rs.toFixed(4)+' Price=$'+r.price+' Mom60='+r.momentum+'%\n'});
+          txt+='\nTop picks: '+(s.top||[]).join(', ');document.getElementById('liveScanLog').textContent=txt;
+          document.getElementById('liveScanOutput').classList.remove('hidden');document.getElementById('liveStatusText').textContent='Scan done!'}
+        else{document.getElementById('liveStatusText').textContent='Done!'}
+        refreshLive()}
+      else if(d.status==='error'){clearInterval(pollTimer);document.getElementById('liveStatusText').textContent='Error: '+d.progress}
+    }
 function runWalkForward() {
   const btn = document.getElementById("wfBtn");
   btn.disabled = true; btn.textContent = "Running...";
@@ -207,8 +218,18 @@ refreshLive();setTimeout(()=>document.getElementById('liveProgressArea').classLi
     }
   },1500);
 }
-function runLiveScan() {
-  fetch('/api/live/scan',{method:'POST'}).then(r=>r.json()).then(()=>{document.getElementById('liveProgressArea').classList.remove('hidden');pollTask('live')})
+function runScanOnly() {
+  const btn = document.getElementById('liveScanBtn');
+  btn.disabled = true; btn.textContent = 'Scanning...';
+  fetch('/api/live/scan-only',{method:'POST'}).then(r=>r.json()).then(()=>{document.getElementById('liveProgressArea').classList.remove('hidden');pollTask('live')})
+  setTimeout(()=>{btn.disabled=false;btn.textContent='Scan'},5000)
+}
+function runExecuteTrades() {
+  if(!confirm('Execute trades? This will place real orders (paper).')) return;
+  const btn = document.getElementById('liveExecuteBtn');
+  btn.disabled = true; btn.textContent = 'Executing...';
+  fetch('/api/live/execute',{method:'POST'}).then(r=>r.json()).then(()=>{document.getElementById('liveProgressArea').classList.remove('hidden');pollTask('live')})
+  setTimeout(()=>{btn.disabled=false;btn.textContent='Execute Trades'},5000)
 }
 function renderResults(r) {
   document.getElementById('resultsArea').classList.remove('hidden');

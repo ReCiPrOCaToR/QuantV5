@@ -41,6 +41,18 @@ python server.py
 # 浏览器打开 http://localhost:5000
 ```
 
+### 仪表盘操作
+
+启动后在浏览器中操作：
+
+| 按钮 | 功能 |
+|------|------|
+| **Run Backtest** | 运行回测（选择策略版本和时间范围） |
+| **Walk-Forward** | 运行 Walk-Forward 验证 |
+| **Scan** | 扫描信号，只看排名不下单 |
+| **Execute Trades** | 执行交易（会弹出确认框） |
+| **Strategy Info** | 查看当前策略信息和持仓 |
+
 ### Walk-Forward 验证
 ```powershell
 python walk_forward.py

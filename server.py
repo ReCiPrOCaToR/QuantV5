@@ -252,10 +252,10 @@ def run_backtest_async(days, mode):
 
 
 def run_live_async():
-    """Run live V5 scan in background thread"""
+    """Run live V5 scan + execute in background thread"""
     global _task_state
     try:
-        _task_state = {"status": "running", "progress": "Starting V5 scan...", "result": None}
+        _task_state = {"status": "running", "progress": "Executing trades...", "result": None}
 
         import io
         import re
@@ -272,7 +272,24 @@ def run_live_async():
         ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
         output = ansi_escape.sub('', output)
 
-        _task_state = {"status": "done", "progress": "Scan complete", "result": {"output": output, "state": state}}
+        _task_state = {"status": "done", "progress": "Execute complete", "result": {"output": output, "state": state}}
+
+    except Exception as e:
+        _task_state = {"status": "error", "progress": str(e), "result": None}
+
+
+def run_scan_only_async():
+    """Scan only - no trades, just rankings"""
+    global _task_state
+    try:
+        _task_state = {"status": "running", "progress": "Scanning...", "result": None}
+
+        from live_trader_v5 import LiveTraderV5
+
+        trader = LiveTraderV5()
+        scan = trader.scan()
+
+        _task_state = {"status": "done", "progress": "Scan complete", "result": {"scan": scan}}
 
     except Exception as e:
         _task_state = {"status": "error", "progress": str(e), "result": None}
@@ -310,6 +327,28 @@ def start_live_scan():
     t = threading.Thread(target=run_live_async, daemon=True)
     t.start()
     return jsonify({"status": "started", "mode": "v5"})
+
+
+@app.route("/api/live/scan-only", methods=["POST"])
+def start_scan_only():
+    """Scan only - no trades, just show rankings"""
+    if _task_state["status"] == "running":
+        return jsonify({"error": "Task already running"}), 400
+
+    t = threading.Thread(target=run_scan_only_async, daemon=True)
+    t.start()
+    return jsonify({"status": "started", "mode": "v5-scan-only"})
+
+
+@app.route("/api/live/execute", methods=["POST"])
+def start_execute():
+    """Execute trades based on last scan"""
+    if _task_state["status"] == "running":
+        return jsonify({"error": "Task already running"}), 400
+
+    t = threading.Thread(target=run_live_async, daemon=True)
+    t.start()
+    return jsonify({"status": "started", "mode": "v5-execute"})
 
 
 @app.route("/api/task/status")
