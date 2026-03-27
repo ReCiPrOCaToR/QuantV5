@@ -1,5 +1,5 @@
 {
-  "last_scan": "2026-03-27T08:43:21.810817",
+  "last_scan": "2026-03-27T09:39:17.246702",
   "top_etfs": [
     "XLE",
     "XBI"
@@ -10,7 +10,7 @@
       "symbol": "XLU",
       "action": "SELL",
       "qty": 551,
-      "status": "submitted"
+      "status": "error: {\"available\":\"0\",\"code\":40310000,\"existing_qty\":\"551\",\"held_for_orders\":\"551\",\"message\":\"insufficient qty available for order (requested: 551, available: 0)\",\"related_orders\":[\"c5f97afc-e253-4e5a-8117-4763fa4ee975\"],\"symbol\":\"XLU\"}"
     },
     {
       "symbol": "XBI",
@@ -23,10 +23,10 @@
   "positions": {
     "XLE": {
       "qty": 411,
-      "market_value": 25408.02,
-      "current_price": 61.82,
-      "unrealized_pl": 295.92,
-      "unrealized_plpc": 1.1780000000000002
+      "market_value": 25395.69,
+      "current_price": 61.79,
+      "unrealized_pl": 283.59,
+      "unrealized_plpc": 1.129
     },
     "XLU": {
       "qty": 551,

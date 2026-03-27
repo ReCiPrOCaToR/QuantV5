@@ -63,8 +63,8 @@ def compute_relative_strength(etf_close: pd.Series, spy_close: pd.Series, lookba
 
 
 class SectorRotation:
-    def __init__(self, initial_capital=100000, top_n=3, lookback=60,
-                 rebalance_days=20, trailing_stop_pct=0.10, cash_pct_bear=0.50):
+    def __init__(self, initial_capital=100000, top_n=2, lookback=30,
+                 rebalance_days=15, trailing_stop_pct=0.10, cash_pct_bear=0.50):
         self.initial_capital = initial_capital
         self.top_n = top_n
         self.lookback = lookback
