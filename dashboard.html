@@ -68,9 +68,6 @@ tr:hover{background:#1e1e3a}
         <div class="control-group"><label>Strategy</label>
           <select id="strategySelect">
             <option value="v5" selected>V5 Sector ETF Rotation</option>
-            <option value="v4">V4 Pure Momentum</option>
-            <option value="v2fast">V2 Fast (3d rebalance)</option>
-            <option value="v2slow">V2 Original (10d rebalance)</option>
           </select>
         </div>
         <button class="btn-run" id="runBtn" onclick="runBacktest()">Run Backtest</button>
@@ -128,10 +125,7 @@ let charts = {};
 let pollTimer = null;
 
 const STRATEGY_CONFIGS = {
-  v5: {name:'V5 Sector Rotation', color:'#00d4ff', params:[['Universe','9 Sector ETFs'],['Signal','30d Relative Strength'],['Positions','Top 2'],['Rebalance','15 days'],['Stop','10% trailing']]},
-  v4: {name:'V4 Pure Momentum', color:'#00ff88', params:[['Factor','60d Momentum (100%)'],['Positions','Top 4'],['Rebalance','5 days'],['Stop','10% trailing']]},
-  v2fast: {name:'V2 Fast', color:'#ff9800', params:[['Rebalance','3 days'],['Stop','1.8xATR']]},
-  v2slow: {name:'V2 Original', color:'#00d4ff', params:[['Rebalance','10 days'],['Stop','2.5xATR']]}
+  v5: {name:'V5 Sector Rotation', color:'#00d4ff', params:[['Universe','9 Sector ETFs'],['Signal','30d Relative Strength'],['Positions','Top 2'],['Rebalance','15 days'],['Stop','10% trailing']]}
 };
 
 // === Mode Switching ===
